@@ -202,3 +202,100 @@ def delete_warning_checkin(record_id: int, user_id: str | None = None) -> None:
                  "WHERE id = :id AND user_id = :user_id"),
             {"id": int(record_id), "user_id": user_id},
         )
+
+
+# ========== 強みインベントリ ==========
+def save_strength(
+    name: str,
+    category: str | None = None,
+    situation: str | None = None,
+    action: str | None = None,
+    result: str | None = None,
+    free_note: str | None = None,
+    user_id: str | None = None,
+) -> int:
+    """強み 1 件を新規保存（追記）。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    sql = text("""
+        INSERT INTO selfmap_strengths
+        (user_id, created_at, name, category, situation, action, result, free_note)
+        VALUES
+        (:user_id, :created_at, :name, :category, :situation, :action, :result, :free_note)
+    """)
+    with get_engine().begin() as conn:
+        result_ins = conn.execute(sql, {
+            "user_id": user_id,
+            "created_at": now_jst_naive().isoformat(),
+            "name": (name or "").strip(),
+            "category": (category or "").strip() or None,
+            "situation": (situation or "").strip() or None,
+            "action": (action or "").strip() or None,
+            "result": (result or "").strip() or None,
+            "free_note": (free_note or "").strip() or None,
+        })
+        try:
+            return int(result_ins.lastrowid or 0)
+        except Exception:
+            return 0
+
+
+def update_strength(
+    record_id: int,
+    name: str,
+    category: str | None = None,
+    situation: str | None = None,
+    action: str | None = None,
+    result: str | None = None,
+    free_note: str | None = None,
+    user_id: str | None = None,
+) -> None:
+    """既存の強み 1 件を上書き更新。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    sql = text("""
+        UPDATE selfmap_strengths
+        SET name = :name, category = :category, situation = :situation,
+            action = :action, result = :result, free_note = :free_note
+        WHERE id = :id AND user_id = :user_id
+    """)
+    with get_engine().begin() as conn:
+        conn.execute(sql, {
+            "id": int(record_id),
+            "user_id": user_id,
+            "name": (name or "").strip(),
+            "category": (category or "").strip() or None,
+            "situation": (situation or "").strip() or None,
+            "action": (action or "").strip() or None,
+            "result": (result or "").strip() or None,
+            "free_note": (free_note or "").strip() or None,
+        })
+
+
+def load_strengths(user_id: str | None = None, limit: int = 100):
+    """強み一覧を取得（DataFrame・新しい順）。"""
+    import pandas as pd
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().connect() as conn:
+        df = pd.read_sql(
+            text(
+                "SELECT id, created_at, name, category, situation, "
+                "action, result, free_note FROM selfmap_strengths "
+                "WHERE user_id = :user_id "
+                "ORDER BY created_at DESC LIMIT :limit"
+            ),
+            conn, params={"user_id": user_id, "limit": int(limit)},
+        )
+    return df
+
+
+def delete_strength(record_id: int, user_id: str | None = None) -> None:
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("DELETE FROM selfmap_strengths "
+                 "WHERE id = :id AND user_id = :user_id"),
+            {"id": int(record_id), "user_id": user_id},
+        )

@@ -24,6 +24,7 @@ from storage import (
     save_work_conditions, load_work_conditions,
     save_warning_signs, load_warning_signs,
     save_warning_checkin, load_warning_checkins, delete_warning_checkin,
+    save_strength, update_strength, load_strengths, delete_strength,
 )
 import json
 import pandas as pd
@@ -66,6 +67,7 @@ with st.sidebar:
             "📋 自分の取扱説明書",
             "🧭 働き方の譲れない条件",
             "🌧️ 再発のサインリスト",
+            "💪 強みインベントリ",
         ],
         label_visibility="collapsed",
         key="view_radio",
@@ -75,7 +77,6 @@ with st.sidebar:
         "**🗺️ 自分マップ**\n\n"
         "自己理解を整理するツール群。\n\n"
         "**今後追加予定**：\n"
-        "- 💪 強みインベントリ\n"
         "- 🎯 価値観カードソート"
     )
 
@@ -776,3 +777,288 @@ elif view == "🌧️ 再発のサインリスト":
                                 st.warning(f"削除失敗：{_e}")
         except Exception as _e:
             st.caption(f"履歴の読み込みでエラー：{_e}")
+
+
+# ============================================================
+# View 4: 強みインベントリ
+# ============================================================
+elif view == "💪 強みインベントリ":
+    st.divider()
+    st.markdown("## 💪 強みインベントリ")
+    st.caption(
+        "**抽象的な性格より、過去の実例から強みを拾う**ためのツール。"
+        "STAR 構造（状況 / 行動 / 結果）で書くと、職務経歴書・面接・"
+        "1on1 でそのまま使える形になります。**判定なし**、自分の言葉で残すだけ。"
+    )
+
+    STRENGTH_CATEGORIES = [
+        "—（未分類）",
+        "🔧 技術・専門性",
+        "🧠 思考・分析",
+        "🤝 対人・コミュニケーション",
+        "🎯 行動・実行力",
+        "💡 創造性・発想",
+        "🌱 自己管理・継続",
+        "📚 学習・成長",
+        "🔍 その他",
+    ]
+
+    _strength_tab = st.radio(
+        "切り替え",
+        ["📝 強みを追加", "📚 一覧 / 編集", "📤 エクスポート"],
+        label_visibility="collapsed",
+        horizontal=True,
+        key="strength_tab",
+    )
+
+    # ----- タブ 1: 強みを追加 -----
+    if _strength_tab == "📝 強みを追加":
+        st.caption(
+            "**1 件 = 1 強み**として書きます。"
+            "「STAR」のうち書けるところだけ書けば OK（全部書く必要はなし）。"
+        )
+
+        with st.form("strength_add_form", clear_on_submit=True):
+            _name = st.text_input(
+                "💪 強みの名前",
+                placeholder="例：データを構造化して読み取れる / 当事者目線で言語化できる / コツコツ続けられる",
+                help="一言で。後で見返した時に「あ、これね」と分かる名前",
+            )
+            _category = st.selectbox(
+                "カテゴリ（任意）",
+                STRENGTH_CATEGORIES,
+                index=0,
+            )
+            _situation = st.text_area(
+                "🌅 状況（Situation）— その強みが現れた具体的な場面",
+                placeholder=(
+                    "例：「2024 年、異常検知システムの精度が悪化していた時。"
+                    "原因が複数の特徴量に分散していて、誰も全体像を掴めていなかった」"
+                ),
+                help="when / where / who の文脈を書くと、後で再利用しやすい",
+                height=100,
+            )
+            _action = st.text_area(
+                "🚀 行動（Action）— その時、自分が何をしたか",
+                placeholder=(
+                    "例：「特徴量を 6 つに絞り込み、CV R² で過学習を可視化。"
+                    "ステークホルダーに『数を絞る方が精度上がる』とデータで説明した」"
+                ),
+                help="**自分が** 何をしたか。チームでやったことでも自分の貢献を書く",
+                height=100,
+            )
+            _result = st.text_area(
+                "🎯 結果（Result）— どうなったか・反響",
+                placeholder=(
+                    "例：「翌週には精度が回復。"
+                    "『データで判断する文化が広がった』と PM から言ってもらえた」"
+                ),
+                help="定量・定性どちらでも。「言ってもらえた」レベルでも貴重",
+                height=80,
+            )
+            _free_note_s = st.text_area(
+                "✍️ 補足・関連メモ（任意）",
+                placeholder="他の場面でも似たことができた / 言葉では説明しにくい部分 など",
+                height=60,
+            )
+
+            _save_s = st.form_submit_button(
+                "💾 追加する", use_container_width=True,
+            )
+            if _save_s:
+                if not _name.strip():
+                    st.warning("強みの名前は必須です")
+                else:
+                    try:
+                        save_strength(
+                            name=_name,
+                            category=(
+                                _category if _category != "—（未分類）" else None
+                            ),
+                            situation=_situation,
+                            action=_action,
+                            result=_result,
+                            free_note=_free_note_s,
+                            user_id=CURRENT_USER_ID,
+                        )
+                        st.success(f"強み「{_name}」を追加しました")
+                    except Exception as _e:
+                        st.warning(f"保存に失敗：{_e}")
+
+        # 書き方のヒント
+        with st.expander("💡 強みを書く時のヒント", expanded=False):
+            st.markdown(
+                "- **「自分は◯◯な性格」より「◯◯した時、こうした」**：抽象より実例\n"
+                "- **小さな実例で OK**：仕事の大きな成功でなくても、"
+                "「友人に頼られた」「家族に感謝された」レベルでも十分\n"
+                "- **「結果」が分からなくても書く**：行動だけでも価値あり。"
+                "「結果は分からない」と書くのも OK\n"
+                "- **後から編集できる**：完璧に書こうとせず、まず 1 件残す"
+            )
+
+    # ----- タブ 2: 一覧 / 編集 -----
+    elif _strength_tab == "📚 一覧 / 編集":
+        try:
+            _df_s = load_strengths(user_id=CURRENT_USER_ID, limit=100)
+            if _df_s.empty:
+                st.info(
+                    "まだ強みは登録されていません。"
+                    "「📝 強みを追加」から 1 件目を残してください。"
+                )
+            else:
+                st.caption(
+                    f"登録済み：**{len(_df_s)} 件**。"
+                    "各行を開いて編集・削除できます。"
+                )
+
+                # カテゴリ別件数
+                if "category" in _df_s.columns:
+                    _cat_counts = _df_s["category"].fillna("（未分類）").value_counts()
+                    _cat_summary = "  ".join(
+                        f"{_c}: {_n}" for _c, _n in _cat_counts.items()
+                    )
+                    if _cat_summary:
+                        st.caption(f"📊 カテゴリ別：{_cat_summary}")
+
+                for _, _row in _df_s.iterrows():
+                    _name_d = _row["name"] or "（無題）"
+                    _cat_d = _row.get("category") or ""
+                    _title = f"💪 {_name_d}"
+                    if _cat_d:
+                        _title += f"　／　{_cat_d}"
+                    with st.expander(_title, expanded=False):
+                        # 編集フォーム
+                        with st.form(f"strength_edit_{_row['id']}"):
+                            _e_name = st.text_input(
+                                "強みの名前", value=_name_d,
+                                key=f"e_name_{_row['id']}",
+                            )
+                            _e_cat_idx = 0
+                            if _cat_d in STRENGTH_CATEGORIES:
+                                _e_cat_idx = STRENGTH_CATEGORIES.index(_cat_d)
+                            _e_category = st.selectbox(
+                                "カテゴリ", STRENGTH_CATEGORIES,
+                                index=_e_cat_idx,
+                                key=f"e_cat_{_row['id']}",
+                            )
+                            _e_situation = st.text_area(
+                                "🌅 状況",
+                                value=_row.get("situation") or "",
+                                height=100,
+                                key=f"e_sit_{_row['id']}",
+                            )
+                            _e_action = st.text_area(
+                                "🚀 行動",
+                                value=_row.get("action") or "",
+                                height=100,
+                                key=f"e_act_{_row['id']}",
+                            )
+                            _e_result = st.text_area(
+                                "🎯 結果",
+                                value=_row.get("result") or "",
+                                height=80,
+                                key=f"e_res_{_row['id']}",
+                            )
+                            _e_note = st.text_area(
+                                "✍️ 補足",
+                                value=_row.get("free_note") or "",
+                                height=60,
+                                key=f"e_note_{_row['id']}",
+                            )
+                            _c1, _c2 = st.columns(2)
+                            with _c1:
+                                _do_update = st.form_submit_button(
+                                    "💾 更新", use_container_width=True,
+                                )
+                            with _c2:
+                                _do_delete = st.form_submit_button(
+                                    "🗑️ 削除", use_container_width=True,
+                                )
+                            if _do_update:
+                                if not _e_name.strip():
+                                    st.warning("名前は必須です")
+                                else:
+                                    try:
+                                        update_strength(
+                                            int(_row["id"]),
+                                            name=_e_name,
+                                            category=(
+                                                _e_category
+                                                if _e_category != "—（未分類）"
+                                                else None
+                                            ),
+                                            situation=_e_situation,
+                                            action=_e_action,
+                                            result=_e_result,
+                                            free_note=_e_note,
+                                            user_id=CURRENT_USER_ID,
+                                        )
+                                        st.success("更新しました")
+                                        st.rerun()
+                                    except Exception as _e:
+                                        st.warning(f"更新失敗：{_e}")
+                            if _do_delete:
+                                try:
+                                    delete_strength(
+                                        int(_row["id"]),
+                                        user_id=CURRENT_USER_ID,
+                                    )
+                                    st.success("削除しました")
+                                    st.rerun()
+                                except Exception as _e:
+                                    st.warning(f"削除失敗：{_e}")
+        except Exception as _e:
+            st.caption(f"読み込みでエラー：{_e}")
+
+    # ----- タブ 3: エクスポート -----
+    else:
+        st.caption(
+            "**職務経歴書・面接準備・1on1 共有用**にまとめてテキストで取り出せます。"
+        )
+        try:
+            _df_s = load_strengths(user_id=CURRENT_USER_ID, limit=100)
+            if _df_s.empty:
+                st.info("まだ強みは登録されていません。")
+            else:
+                _md_lines = ["# 強みインベントリ", ""]
+                # カテゴリでグルーピング
+                _df_grouped = _df_s.copy()
+                _df_grouped["category"] = (
+                    _df_grouped["category"].fillna("（未分類）")
+                )
+                for _cat, _grp in _df_grouped.groupby(
+                    "category", sort=False,
+                ):
+                    _md_lines.append(f"## {_cat}")
+                    _md_lines.append("")
+                    for _, _row in _grp.iterrows():
+                        _md_lines.append(f"### 💪 {_row['name']}")
+                        _md_lines.append("")
+                        if _row.get("situation"):
+                            _md_lines.append(f"**🌅 状況**：{_row['situation']}")
+                            _md_lines.append("")
+                        if _row.get("action"):
+                            _md_lines.append(f"**🚀 行動**：{_row['action']}")
+                            _md_lines.append("")
+                        if _row.get("result"):
+                            _md_lines.append(f"**🎯 結果**：{_row['result']}")
+                            _md_lines.append("")
+                        if _row.get("free_note"):
+                            _md_lines.append(f"**✍️ 補足**：{_row['free_note']}")
+                            _md_lines.append("")
+                _md_text = "\n".join(_md_lines)
+                st.text_area(
+                    "Markdown テキスト",
+                    value=_md_text,
+                    height=400,
+                    label_visibility="collapsed",
+                )
+                st.download_button(
+                    "💾 .md ファイルとしてダウンロード",
+                    data=_md_text.encode("utf-8"),
+                    file_name="my_strengths.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+        except Exception as _e:
+            st.caption(f"エクスポートでエラー：{_e}")

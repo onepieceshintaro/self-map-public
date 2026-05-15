@@ -101,6 +101,27 @@ def init_db() -> None:
             "ON selfmap_warning_checkins(user_id, created_at)"
         ))
 
+        # selfmap_strengths（強みインベントリ）
+        # 1 強み = 1 レコード。STAR 構造（Situation / Action / Result）。
+        # 抽象的な性格より過去の実例から拾う方が後で使える（職務経歴書・面接・1on1）。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_strengths (
+                id {"BIGSERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                name TEXT NOT NULL,
+                category TEXT,
+                situation TEXT,
+                action TEXT,
+                result TEXT,
+                free_note TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_selfmap_strengths_user "
+            "ON selfmap_strengths(user_id, created_at)"
+        ))
+
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_nicknames (
