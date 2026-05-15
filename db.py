@@ -122,6 +122,21 @@ def init_db() -> None:
             "ON selfmap_strengths(user_id, created_at)"
         ))
 
+        # selfmap_values_sort（価値観カードソート）
+        # 1ユーザー1レコード。3 段階仕分け + Top 5 + 自分の言葉での定義を JSON で保持。
+        # content: {
+        #   "sort": {value_name: "重要"/"どちらでも"/"重要でない"},
+        #   "top5": [value_name, ...],
+        #   "descriptions": {value_name: "自分にとっての意味"}
+        # }
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_values_sort (
+                user_id TEXT PRIMARY KEY,
+                content TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """))
+
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_nicknames (

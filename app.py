@@ -25,6 +25,7 @@ from storage import (
     save_warning_signs, load_warning_signs,
     save_warning_checkin, load_warning_checkins, delete_warning_checkin,
     save_strength, update_strength, load_strengths, delete_strength,
+    save_values_sort, load_values_sort,
 )
 import json
 import pandas as pd
@@ -68,6 +69,7 @@ with st.sidebar:
             "🧭 働き方の譲れない条件",
             "🌧️ 再発のサインリスト",
             "💪 強みインベントリ",
+            "🎯 価値観カードソート",
         ],
         label_visibility="collapsed",
         key="view_radio",
@@ -76,8 +78,8 @@ with st.sidebar:
     st.caption(
         "**🗺️ 自分マップ**\n\n"
         "自己理解を整理するツール群。\n\n"
-        "**今後追加予定**：\n"
-        "- 🎯 価値観カードソート"
+        "5 フェーズの「再選択」期に向けて、"
+        "自分の輪郭を言語化していく場所。"
     )
 
 
@@ -1062,3 +1064,305 @@ elif view == "💪 強みインベントリ":
                 )
         except Exception as _e:
             st.caption(f"エクスポートでエラー：{_e}")
+
+
+# ============================================================
+# View 5: 価値観カードソート
+# ============================================================
+elif view == "🎯 価値観カードソート":
+    st.divider()
+    st.markdown("## 🎯 価値観カードソート")
+    st.caption(
+        "**自分が大事にする価値観**を 40 個のカードから選んで、最後に Top 5 に絞り込みます。"
+        "5 つまで絞ると、判断・選択の指針として使いやすくなります。"
+        "**正解はありません**、自分の今の感覚で選んでみてください。"
+    )
+
+    # 価値観カード（40 個・5 カテゴリ）
+    VALUE_CARDS = {
+        "💼 仕事・キャリア": [
+            ("成長", "新しい学び・スキルアップ"),
+            ("達成", "目標を達成すること"),
+            ("専門性", "一つの分野を深める"),
+            ("影響力", "他者・社会への影響"),
+            ("自由", "時間・場所の柔軟性"),
+            ("安定", "収入・雇用の安定"),
+            ("挑戦", "新しいことへの挑戦"),
+            ("創造", "新しいものを生み出す"),
+            ("貢献", "社会・組織への貢献"),
+            ("リーダーシップ", "人を率いる"),
+        ],
+        "🤝 人間関係": [
+            ("家族", "家族との時間"),
+            ("友情", "友人との関係"),
+            ("パートナーシップ", "パートナーとの関係"),
+            ("コミュニティ", "所属感"),
+            ("助け合い", "互いに助ける関係"),
+            ("信頼", "信頼できる人間関係"),
+            ("独立", "一人の時間・空間"),
+        ],
+        "🌱 自己・成長": [
+            ("健康", "心身の健康"),
+            ("学び", "生涯学習"),
+            ("探究", "好奇心"),
+            ("美", "美しいもの・芸術"),
+            ("自然", "自然との触れ合い"),
+            ("平穏", "穏やかな日常"),
+            ("ユーモア", "笑い・楽しさ"),
+            ("誠実", "正直さ"),
+            ("勇気", "恐れに立ち向かう"),
+            ("内省", "自己理解"),
+        ],
+        "🌍 社会・倫理": [
+            ("公正", "公平さ"),
+            ("多様性", "違いを尊重"),
+            ("環境", "環境への配慮"),
+            ("伝統", "伝統・文化を守る"),
+            ("革新", "古いものを変える"),
+            ("平等", "機会の平等"),
+        ],
+        "🌌 人生・意味": [
+            ("意味", "人生の意味"),
+            ("充足", "足るを知る"),
+            ("感謝", "感謝の心"),
+            ("楽しさ", "人生を楽しむ"),
+            ("旅・経験", "新しい場所・経験"),
+            ("豊かさ", "経済的・物質的な豊かさ"),
+            ("名声", "社会的評価"),
+        ],
+    }
+
+    # 全価値観のフラットリスト（順序保持）
+    ALL_VALUES: list[tuple[str, str]] = []
+    for _cat, _items in VALUE_CARDS.items():
+        ALL_VALUES.extend(_items)
+    ALL_VALUE_NAMES = [_v[0] for _v in ALL_VALUES]
+
+    SORT_OPTIONS = ["⚪ どちらでも", "🟢 重要", "⛔ 重要でない"]
+    SORT_KEY_MAP = {
+        "⚪ どちらでも": "どちらでも",
+        "🟢 重要": "重要",
+        "⛔ 重要でない": "重要でない",
+    }
+    SORT_FROM_KEY = {v: k for k, v in SORT_KEY_MAP.items()}
+
+    _vs_existing = load_values_sort(user_id=CURRENT_USER_ID)
+    _vs_sort: dict = _vs_existing.get("sort") or {}
+    _vs_top5: list = _vs_existing.get("top5") or []
+    _vs_descs: dict = _vs_existing.get("descriptions") or {}
+
+    _vs_tab = st.radio(
+        "切り替え",
+        ["🃏 仕分け（全 40 枚）", "⭐ Top 5 を選ぶ", "📋 結果・エクスポート"],
+        label_visibility="collapsed",
+        horizontal=True,
+        key="values_sort_tab",
+    )
+
+    # ----- タブ 1: 仕分け -----
+    if _vs_tab == "🃏 仕分け（全 40 枚）":
+        _updated_at_vs = _vs_existing.get("_updated_at")
+        if _updated_at_vs:
+            try:
+                _disp = _updated_at_vs.replace("T", " ")[:16]
+                st.caption(f"📅 最終更新：{_disp}")
+            except Exception:
+                pass
+
+        st.caption(
+            "**🟢 重要**（自分にとって大事）／"
+            "**⚪ どちらでも**（特に強い思いはない）／"
+            "**⛔ 重要でない**（自分には当てはまらない）。"
+            "デフォルトは「どちらでも」。Top 5 に進むには、まず **5 個以上を「重要」に**してください。"
+        )
+
+        with st.form("values_sort_form"):
+            _new_sort: dict[str, str] = {}
+            for _cat, _items in VALUE_CARDS.items():
+                st.markdown(f"**{_cat}**")
+                for _name, _desc in _items:
+                    _stored = _vs_sort.get(_name, "どちらでも")
+                    _stored_display = SORT_FROM_KEY.get(_stored, "⚪ どちらでも")
+                    _idx = (
+                        SORT_OPTIONS.index(_stored_display)
+                        if _stored_display in SORT_OPTIONS else 0
+                    )
+                    _selected = st.radio(
+                        f"**{_name}**　／　{_desc}",
+                        SORT_OPTIONS,
+                        index=_idx,
+                        horizontal=True,
+                        key=f"vs_{_name}",
+                    )
+                    _new_sort[_name] = SORT_KEY_MAP.get(_selected, "どちらでも")
+                st.write("")
+
+            _save_vs = st.form_submit_button(
+                "💾 仕分けを保存", use_container_width=True,
+            )
+            if _save_vs:
+                try:
+                    _content = {
+                        "sort": _new_sort,
+                        "top5": _vs_top5,
+                        "descriptions": _vs_descs,
+                    }
+                    save_values_sort(_content, user_id=CURRENT_USER_ID)
+                    _n_important = sum(
+                        1 for v in _new_sort.values() if v == "重要"
+                    )
+                    st.success(f"保存しました（🟢 重要：{_n_important} 個）")
+                except Exception as _e:
+                    st.warning(f"保存に失敗：{_e}")
+
+    # ----- タブ 2: Top 5 を選ぶ -----
+    elif _vs_tab == "⭐ Top 5 を選ぶ":
+        _important_values = [
+            _name for _name in ALL_VALUE_NAMES
+            if _vs_sort.get(_name) == "重要"
+        ]
+        if len(_important_values) < 5:
+            st.info(
+                f"「🟢 重要」が **{len(_important_values)} 個** です。"
+                "**5 個以上**を「重要」にしてから戻ってきてください。"
+                "（「🃏 仕分け」タブで選び直せます）"
+            )
+        else:
+            st.caption(
+                f"**🟢 重要**に選んだ **{len(_important_values)} 個** から、"
+                "**Top 5** を選んでください。同じ「成長」でも、人によって意味は違います。"
+                "**自分にとってどういう意味か** を書くと、後で見返した時に効きます。"
+            )
+
+            with st.form("values_top5_form"):
+                _selected_top5 = st.multiselect(
+                    "Top 5（5 つまで）",
+                    _important_values,
+                    default=[v for v in _vs_top5 if v in _important_values][:5],
+                    max_selections=5,
+                )
+
+                _new_descs: dict[str, str] = {}
+                if _selected_top5:
+                    st.markdown("---")
+                    st.markdown("**📝 自分にとっての意味（任意）**")
+                    st.caption(
+                        "それぞれの価値観が、自分にとって**どういう意味か**を一言で。"
+                        "書けないものは空欄で OK。"
+                    )
+                    for _v in _selected_top5:
+                        # 説明文（カード定義側）を補助として表示
+                        _ref_desc = next(
+                            (d for n, d in ALL_VALUES if n == _v), ""
+                        )
+                        _existing_desc = _vs_descs.get(_v, "")
+                        _new_descs[_v] = st.text_area(
+                            f"💎 {_v}　（一般的には：{_ref_desc}）",
+                            value=_existing_desc,
+                            placeholder="自分にとってこの価値観は…",
+                            height=70,
+                            key=f"desc_{_v}",
+                        )
+
+                _save_top5 = st.form_submit_button(
+                    "💾 Top 5 を保存", use_container_width=True,
+                )
+                if _save_top5:
+                    try:
+                        # descriptions は新規分とマージ（古いものは残す）
+                        _merged_descs = dict(_vs_descs)
+                        _merged_descs.update(_new_descs)
+                        _content = {
+                            "sort": _vs_sort,
+                            "top5": _selected_top5,
+                            "descriptions": _merged_descs,
+                        }
+                        save_values_sort(_content, user_id=CURRENT_USER_ID)
+                        st.success(
+                            f"Top 5 を保存しました（{len(_selected_top5)} 個）"
+                        )
+                    except Exception as _e:
+                        st.warning(f"保存に失敗：{_e}")
+
+    # ----- タブ 3: 結果・エクスポート -----
+    else:
+        if not _vs_top5:
+            st.info(
+                "まだ Top 5 が保存されていません。"
+                "「🃏 仕分け」→「⭐ Top 5 を選ぶ」を進めてください。"
+            )
+        else:
+            st.markdown("### 💎 自分の Top 5 価値観")
+            st.caption(
+                "判断に迷った時の指針として。"
+                "**この 5 つが自分の選び方の軸**になります。"
+            )
+
+            for _i, _v in enumerate(_vs_top5, 1):
+                _ref_desc = next((d for n, d in ALL_VALUES if n == _v), "")
+                _my_desc = _vs_descs.get(_v, "")
+                with st.container(border=True):
+                    st.markdown(f"### {_i}. 💎 {_v}")
+                    st.caption(f"一般的には：{_ref_desc}")
+                    if _my_desc.strip():
+                        st.markdown(f"**自分にとっての意味**：{_my_desc}")
+                    else:
+                        st.caption("（自分にとっての意味は未記入）")
+
+            # サマリ統計
+            st.divider()
+            _n_imp = sum(1 for v in _vs_sort.values() if v == "重要")
+            _n_neu = sum(1 for v in _vs_sort.values() if v == "どちらでも")
+            _n_not = sum(1 for v in _vs_sort.values() if v == "重要でない")
+            st.caption(
+                f"仕分け統計：🟢 重要 {_n_imp} ／ "
+                f"⚪ どちらでも {_n_neu} ／ ⛔ 重要でない {_n_not}"
+            )
+
+            # Markdown エクスポート
+            st.divider()
+            with st.expander(
+                "📤 価値観マップをテキストで取り出す", expanded=False,
+            ):
+                _md_lines = ["# 自分の価値観マップ", ""]
+                _md_lines.append("## 💎 Top 5 価値観")
+                _md_lines.append("")
+                for _i, _v in enumerate(_vs_top5, 1):
+                    _ref_desc = next((d for n, d in ALL_VALUES if n == _v), "")
+                    _my_desc = _vs_descs.get(_v, "")
+                    _md_lines.append(f"### {_i}. {_v}")
+                    _md_lines.append("")
+                    _md_lines.append(f"- 一般的には：{_ref_desc}")
+                    if _my_desc.strip():
+                        _md_lines.append(f"- 自分にとって：{_my_desc}")
+                    _md_lines.append("")
+
+                # 全 🟢 重要 一覧
+                _all_imp = [
+                    _name for _name in ALL_VALUE_NAMES
+                    if _vs_sort.get(_name) == "重要"
+                ]
+                if _all_imp:
+                    _md_lines.append("## 🟢 重要に選んだ全項目")
+                    _md_lines.append("")
+                    for _name in _all_imp:
+                        _ref_desc = next(
+                            (d for n, d in ALL_VALUES if n == _name), ""
+                        )
+                        _md_lines.append(f"- **{_name}**：{_ref_desc}")
+                    _md_lines.append("")
+
+                _md_text = "\n".join(_md_lines)
+                st.text_area(
+                    "Markdown テキスト",
+                    value=_md_text,
+                    height=400,
+                    label_visibility="collapsed",
+                )
+                st.download_button(
+                    "💾 .md ファイルとしてダウンロード",
+                    data=_md_text.encode("utf-8"),
+                    file_name="my_values_map.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
