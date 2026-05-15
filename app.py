@@ -29,6 +29,12 @@ from storage import (
     save_stress_source, load_stress_sources, delete_stress_source,
     save_nonverbal_memo, load_nonverbal_memos, delete_nonverbal_memo,
 )
+try:
+    import chat_engine
+    _CHAT_AVAILABLE = chat_engine.is_available()
+except Exception:
+    chat_engine = None
+    _CHAT_AVAILABLE = False
 import json
 import pandas as pd
 
@@ -518,6 +524,136 @@ elif view == "📋 自分の取扱説明書":
                 mime="text/markdown",
                 use_container_width=True,
             )
+
+    # ===========================================================
+    # 💬 AI と整理する（オプション・補助）
+    # ===========================================================
+    # 既存原則と整合：
+    # - 完全オプトイン（このブロックは独立した補助）
+    # - AI 出力は「たたき台」、保存は必ず本人確認後
+    # - 「フォームに反映」も既存内容に追記（上書きしない）
+    # ===========================================================
+    st.divider()
+    st.markdown("### 💬 AI と整理する（オプション）")
+    if not _CHAT_AVAILABLE:
+        st.caption(
+            "AI 補助は API キーが設定されていない環境では使えません。"
+            "上のフォームから自分で書く形でご利用ください。"
+        )
+    else:
+        st.caption(
+            "**AI と対話**しながら、取扱説明書の各セクションに当てはまる内容を引き出します。"
+            "AI は質問するだけ。出てきた内容は **必ず本人が確認してからフォームに反映**してください。"
+        )
+
+        _mkey = "chat_manual_messages"
+        if _mkey not in st.session_state:
+            st.session_state[_mkey] = []
+
+        # チャット履歴の表示
+        for _msg in st.session_state[_mkey]:
+            with st.chat_message(_msg["role"]):
+                st.markdown(_msg["content"])
+
+        _user_input = st.chat_input("ここに書きながら整理する…")
+        if _user_input:
+            st.session_state[_mkey].append(
+                {"role": "user", "content": _user_input}
+            )
+            try:
+                with st.spinner("…考えています…"):
+                    _ai_reply = chat_engine.chat_manual(
+                        st.session_state[_mkey]
+                    )
+                st.session_state[_mkey].append(
+                    {"role": "assistant", "content": _ai_reply}
+                )
+                st.rerun()
+            except Exception as _e:
+                st.warning(f"AI 応答失敗：{_e}")
+                st.session_state[_mkey].pop()
+
+        if len(st.session_state[_mkey]) >= 2:
+            _col_ext, _col_clear = st.columns(2)
+            with _col_ext:
+                if st.button(
+                    "📥 ここまでの会話から取扱説明書に整理する",
+                    use_container_width=True,
+                    key="manual_chat_extract",
+                ):
+                    try:
+                        with st.spinner("整理中…"):
+                            _extracted_manual = (
+                                chat_engine.extract_manual_from_chat(
+                                    st.session_state[_mkey]
+                                )
+                            )
+                        st.session_state["chat_manual_extracted"] = (
+                            _extracted_manual
+                        )
+                        st.success("整理しました（下に表示）")
+                    except Exception as _e:
+                        st.warning(f"整理失敗：{_e}")
+            with _col_clear:
+                if st.button(
+                    "🗑️ チャットをリセット",
+                    use_container_width=True,
+                    key="manual_chat_reset",
+                ):
+                    st.session_state[_mkey] = []
+                    st.session_state.pop("chat_manual_extracted", None)
+                    st.rerun()
+
+        _extracted_manual = st.session_state.get("chat_manual_extracted")
+        if _extracted_manual:
+            st.divider()
+            st.markdown("#### 📋 抽出結果プレビュー")
+            st.caption(
+                "下記が AI が抽出した内容です。"
+                "**「自分の言葉そのまま」** を引き出すようにプロンプトしていますが、"
+                "**必ず本人が確認してからフォームに反映**してください。"
+                "反映時は **上のフォームの既存内容に追記**されます（上書きなし）。"
+            )
+            _has_any = False
+            for _sec in MANUAL_SECTIONS:
+                _v = _extracted_manual.get(_sec["key"], "")
+                if isinstance(_v, str) and _v.strip():
+                    _has_any = True
+                    with st.container(border=True):
+                        st.markdown(f"**{_sec['title']}**")
+                        st.markdown(_v)
+            if not _has_any:
+                st.caption("（抽出できる内容が見つかりませんでした）")
+            else:
+                if st.button(
+                    "📝 フォームに反映（既存に追記）",
+                    use_container_width=True,
+                    key="manual_chat_apply",
+                ):
+                    try:
+                        _merged_manual: dict[str, str] = {}
+                        for _sec in MANUAL_SECTIONS:
+                            _k = _sec["key"]
+                            _ex_v = _existing.get(_k, "") or ""
+                            _ext_v = _extracted_manual.get(_k, "") or ""
+                            if isinstance(_ext_v, str) and _ext_v.strip():
+                                if isinstance(_ex_v, str) and _ex_v.strip():
+                                    _merged_manual[_k] = (
+                                        _ex_v.rstrip() + "\n" + _ext_v.strip()
+                                    )
+                                else:
+                                    _merged_manual[_k] = _ext_v.strip()
+                            else:
+                                _merged_manual[_k] = _ex_v if isinstance(_ex_v, str) else ""
+                        save_manual(_merged_manual, user_id=CURRENT_USER_ID)
+                        st.session_state.pop(
+                            "chat_manual_extracted", None,
+                        )
+                        st.session_state[_mkey] = []
+                        st.success("フォームに反映しました。再読み込みします…")
+                        st.rerun()
+                    except Exception as _e:
+                        st.warning(f"反映失敗：{_e}")
 
 
 # ============================================================
@@ -1049,7 +1185,7 @@ elif view == "💪 強みインベントリ":
 
     _strength_tab = st.radio(
         "切り替え",
-        ["📝 強みを追加", "📚 一覧 / 編集", "📤 エクスポート"],
+        ["📝 強みを追加", "💬 AI と整理する", "📚 一覧 / 編集", "📤 エクスポート"],
         label_visibility="collapsed",
         horizontal=True,
         key="strength_tab",
@@ -1140,7 +1276,138 @@ elif view == "💪 強みインベントリ":
                 "- **後から編集できる**：完璧に書こうとせず、まず 1 件残す"
             )
 
-    # ----- タブ 2: 一覧 / 編集 -----
+    # ----- タブ 2: AI と整理する -----
+    elif _strength_tab == "💬 AI と整理する":
+        if not _CHAT_AVAILABLE:
+            st.caption(
+                "AI 補助は API キーが設定されていない環境では使えません。"
+                "「📝 強みを追加」タブから自分で書く形でご利用ください。"
+            )
+        else:
+            st.caption(
+                "**AI と対話**しながら、過去の場面から強み 1 件を STAR 構造で引き出します。"
+                "AI は質問するだけ。**最終的な強みは本人の言葉**でフォームに反映してください。"
+            )
+
+            _skey = "chat_strength_messages"
+            if _skey not in st.session_state:
+                st.session_state[_skey] = []
+
+            for _msg in st.session_state[_skey]:
+                with st.chat_message(_msg["role"]):
+                    st.markdown(_msg["content"])
+
+            _user_input_s = st.chat_input(
+                "ここに書きながら強みを引き出す…",
+                key="strength_chat_input",
+            )
+            if _user_input_s:
+                st.session_state[_skey].append(
+                    {"role": "user", "content": _user_input_s}
+                )
+                try:
+                    with st.spinner("…考えています…"):
+                        _ai_reply_s = chat_engine.chat_strength(
+                            st.session_state[_skey]
+                        )
+                    st.session_state[_skey].append(
+                        {"role": "assistant", "content": _ai_reply_s}
+                    )
+                    st.rerun()
+                except Exception as _e:
+                    st.warning(f"AI 応答失敗：{_e}")
+                    st.session_state[_skey].pop()
+
+            if len(st.session_state[_skey]) >= 2:
+                _col_es, _col_cs = st.columns(2)
+                with _col_es:
+                    if st.button(
+                        "📥 ここまでの会話から強み 1 件を抽出",
+                        use_container_width=True,
+                        key="strength_chat_extract",
+                    ):
+                        try:
+                            with st.spinner("抽出中…"):
+                                _extracted_s = (
+                                    chat_engine.extract_strength_from_chat(
+                                        st.session_state[_skey]
+                                    )
+                                )
+                            st.session_state["chat_strength_extracted"] = (
+                                _extracted_s
+                            )
+                            st.success("抽出しました（下に表示）")
+                        except Exception as _e:
+                            st.warning(f"抽出失敗：{_e}")
+                with _col_cs:
+                    if st.button(
+                        "🗑️ チャットをリセット",
+                        use_container_width=True,
+                        key="strength_chat_reset",
+                    ):
+                        st.session_state[_skey] = []
+                        st.session_state.pop(
+                            "chat_strength_extracted", None,
+                        )
+                        st.rerun()
+
+            _extracted_s = st.session_state.get("chat_strength_extracted")
+            if _extracted_s:
+                st.divider()
+                st.markdown("#### 💪 抽出結果プレビュー")
+                st.caption(
+                    "下記が AI が抽出した 1 件です。"
+                    "**確認して保存ボタン**を押すと強み一覧に追加されます。"
+                    "保存後は「📚 一覧 / 編集」タブで自分の言葉に修正できます。"
+                )
+                with st.container(border=True):
+                    _ex_name = _extracted_s.get("name", "")
+                    _ex_cat = _extracted_s.get("category", "—（未分類）")
+                    _ex_sit = _extracted_s.get("situation", "")
+                    _ex_act = _extracted_s.get("action", "")
+                    _ex_res = _extracted_s.get("result", "")
+                    _ex_note = _extracted_s.get("free_note", "")
+                    st.markdown(f"**💪 名前**：{_ex_name or '（未抽出）'}")
+                    st.markdown(f"**カテゴリ**：{_ex_cat}")
+                    if _ex_sit:
+                        st.markdown(f"**🌅 状況**：{_ex_sit}")
+                    if _ex_act:
+                        st.markdown(f"**🚀 行動**：{_ex_act}")
+                    if _ex_res:
+                        st.markdown(f"**🎯 結果**：{_ex_res}")
+                    if _ex_note:
+                        st.markdown(f"**✍️ 補足**：{_ex_note}")
+
+                if _ex_name.strip():
+                    if st.button(
+                        "💾 強みとして保存",
+                        use_container_width=True,
+                        key="strength_chat_save",
+                    ):
+                        try:
+                            save_strength(
+                                name=_ex_name,
+                                category=(
+                                    _ex_cat if _ex_cat != "—（未分類）" else None
+                                ),
+                                situation=_ex_sit,
+                                action=_ex_act,
+                                result=_ex_res,
+                                free_note=_ex_note,
+                                user_id=CURRENT_USER_ID,
+                            )
+                            st.session_state.pop(
+                                "chat_strength_extracted", None,
+                            )
+                            st.session_state[_skey] = []
+                            st.success(
+                                f"強み「{_ex_name}」を保存しました。"
+                                "「📚 一覧 / 編集」タブで確認・修正できます。"
+                            )
+                        except Exception as _e:
+                            st.warning(f"保存失敗：{_e}")
+
+    # ----- タブ 3: 一覧 / 編集 -----
     elif _strength_tab == "📚 一覧 / 編集":
         try:
             _df_s = load_strengths(user_id=CURRENT_USER_ID, limit=100)
