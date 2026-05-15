@@ -301,6 +301,122 @@ def delete_strength(record_id: int, user_id: str | None = None) -> None:
         )
 
 
+# ========== 仕事ストレス源チェックリスト ==========
+def save_stress_source(
+    sources: list[str],
+    free_note: str | None = None,
+    user_id: str | None = None,
+) -> int:
+    if user_id is None:
+        user_id = _owner_user_id()
+    sources_json = json.dumps(sources or [], ensure_ascii=False)
+    sql = text("""
+        INSERT INTO selfmap_stress_sources
+        (user_id, created_at, sources, free_note)
+        VALUES
+        (:user_id, :created_at, :sources, :free_note)
+    """)
+    with get_engine().begin() as conn:
+        result = conn.execute(sql, {
+            "user_id": user_id,
+            "created_at": now_jst_naive().isoformat(),
+            "sources": sources_json,
+            "free_note": (free_note or "").strip() or None,
+        })
+        try:
+            return int(result.lastrowid or 0)
+        except Exception:
+            return 0
+
+
+def load_stress_sources(
+    user_id: str | None = None, limit: int = 50,
+):
+    import pandas as pd
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().connect() as conn:
+        df = pd.read_sql(
+            text(
+                "SELECT id, created_at, sources, free_note "
+                "FROM selfmap_stress_sources "
+                "WHERE user_id = :user_id "
+                "ORDER BY created_at DESC LIMIT :limit"
+            ),
+            conn, params={"user_id": user_id, "limit": int(limit)},
+        )
+    return df
+
+
+def delete_stress_source(record_id: int, user_id: str | None = None) -> None:
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("DELETE FROM selfmap_stress_sources "
+                 "WHERE id = :id AND user_id = :user_id"),
+            {"id": int(record_id), "user_id": user_id},
+        )
+
+
+# ========== 「言葉にできないこと」専用メモ ==========
+def save_nonverbal_memo(
+    state_markers: list[str] | None = None,
+    content: str | None = None,
+    user_id: str | None = None,
+) -> int:
+    if user_id is None:
+        user_id = _owner_user_id()
+    markers_json = json.dumps(state_markers or [], ensure_ascii=False)
+    sql = text("""
+        INSERT INTO selfmap_nonverbal_memos
+        (user_id, created_at, state_markers, content)
+        VALUES
+        (:user_id, :created_at, :state_markers, :content)
+    """)
+    with get_engine().begin() as conn:
+        result = conn.execute(sql, {
+            "user_id": user_id,
+            "created_at": now_jst_naive().isoformat(),
+            "state_markers": markers_json,
+            "content": (content or "").strip() or None,
+        })
+        try:
+            return int(result.lastrowid or 0)
+        except Exception:
+            return 0
+
+
+def load_nonverbal_memos(
+    user_id: str | None = None, limit: int = 50,
+):
+    import pandas as pd
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().connect() as conn:
+        df = pd.read_sql(
+            text(
+                "SELECT id, created_at, state_markers, content "
+                "FROM selfmap_nonverbal_memos "
+                "WHERE user_id = :user_id "
+                "ORDER BY created_at DESC LIMIT :limit"
+            ),
+            conn, params={"user_id": user_id, "limit": int(limit)},
+        )
+    return df
+
+
+def delete_nonverbal_memo(record_id: int, user_id: str | None = None) -> None:
+    if user_id is None:
+        user_id = _owner_user_id()
+    with get_engine().begin() as conn:
+        conn.execute(
+            text("DELETE FROM selfmap_nonverbal_memos "
+                 "WHERE id = :id AND user_id = :user_id"),
+            {"id": int(record_id), "user_id": user_id},
+        )
+
+
 # ========== 価値観カードソート ==========
 def save_values_sort(content: dict, user_id: str | None = None) -> None:
     """価値観カードソートを保存（同一ユーザーは上書き）。"""

@@ -122,6 +122,40 @@ def init_db() -> None:
             "ON selfmap_strengths(user_id, created_at)"
         ))
 
+        # selfmap_stress_sources（Phase 1: 仕事ストレス源チェックリスト）
+        # 元は CBT 側に置いていたが、self-map に「自己理解ツール」として集約。
+        # 何にしんどさを感じているかを言語化する第一歩。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_stress_sources (
+                id {"BIGSERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                sources TEXT,
+                free_note TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_selfmap_stress_sources_user "
+            "ON selfmap_stress_sources(user_id, created_at)"
+        ))
+
+        # selfmap_nonverbal_memos（Phase 1: 「言葉にできないこと」専用メモ）
+        # 元は CBT 側に置いていたが、self-map に集約。
+        # 書ける前提の UI が罠になる場合のフォールバック。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_nonverbal_memos (
+                id {"BIGSERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                state_markers TEXT,
+                content TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_selfmap_nonverbal_memos_user "
+            "ON selfmap_nonverbal_memos(user_id, created_at)"
+        ))
+
         # selfmap_values_sort（価値観カードソート）
         # 1ユーザー1レコード。3 段階仕分け + Top 5 + 自分の言葉での定義を JSON で保持。
         # content: {
