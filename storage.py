@@ -56,3 +56,46 @@ def load_manual(user_id: str | None = None) -> dict:
     except Exception:
         pass
     return {"_updated_at": None}
+
+
+# ========== 働き方の譲れない条件 ==========
+def save_work_conditions(content: dict, user_id: str | None = None) -> None:
+    """働き方条件を保存（同一ユーザーは上書き）。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    content_json = json.dumps(content or {}, ensure_ascii=False)
+    sql = text("""
+        INSERT INTO selfmap_work_conditions (user_id, content, updated_at)
+        VALUES (:user_id, :content, :updated_at)
+        ON CONFLICT (user_id) DO UPDATE SET
+            content = EXCLUDED.content,
+            updated_at = EXCLUDED.updated_at
+    """)
+    with get_engine().begin() as conn:
+        conn.execute(sql, {
+            "user_id": user_id,
+            "content": content_json,
+            "updated_at": now_jst_naive().isoformat(),
+        })
+
+
+def load_work_conditions(user_id: str | None = None) -> dict:
+    """働き方条件を読み込む。無ければ空 dict。"""
+    if user_id is None:
+        user_id = _owner_user_id()
+    sql = text(
+        "SELECT content, updated_at FROM selfmap_work_conditions "
+        "WHERE user_id = :user_id"
+    )
+    with get_engine().connect() as conn:
+        row = conn.execute(sql, {"user_id": user_id}).fetchone()
+    if not row or not row[0]:
+        return {"_updated_at": None}
+    try:
+        data = json.loads(row[0])
+        if isinstance(data, dict):
+            data["_updated_at"] = row[1]
+            return data
+    except Exception:
+        pass
+    return {"_updated_at": None}

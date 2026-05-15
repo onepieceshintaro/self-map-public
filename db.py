@@ -62,6 +62,17 @@ def init_db() -> None:
             )
         """))
 
+        # selfmap_work_conditions（働き方の譲れない条件）
+        # 1ユーザー1レコード方式（常に最新版）。
+        # content は dict（項目名 → "必須"/"望ましい"/"不要"）＋ "_free_note"。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_work_conditions (
+                user_id TEXT PRIMARY KEY,
+                content TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """))
+
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_nicknames (
