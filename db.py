@@ -73,6 +73,34 @@ def init_db() -> None:
             )
         """))
 
+        # selfmap_warning_signs（再発のサインリスト）
+        # 早期サイン / 警戒サイン / きっかけ をユーザーが自分の言葉で書く。
+        # 取扱説明書とは別管理：再発予防に特化、段階分けで対処を変えやすくする。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_warning_signs (
+                user_id TEXT PRIMARY KEY,
+                content TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """))
+
+        # selfmap_warning_checkins（再発サインの「今チェック」ログ）
+        # 「今、自分のサインに何個当てはまるか」を時系列で残す。
+        # 履歴で自分の波が見える → β 期の伴走素材にもなる。
+        conn.execute(text(f"""
+            CREATE TABLE IF NOT EXISTS selfmap_warning_checkins (
+                id {"BIGSERIAL PRIMARY KEY" if pg else "INTEGER PRIMARY KEY AUTOINCREMENT"},
+                user_id TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                checked_signs TEXT,
+                note TEXT
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_selfmap_warning_checkins_user "
+            "ON selfmap_warning_checkins(user_id, created_at)"
+        ))
+
         # user_nicknames（3アプリ共通・プレフィックス無し）
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS user_nicknames (

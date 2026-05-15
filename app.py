@@ -22,7 +22,11 @@ from _user import render_account_sidebar
 from storage import (
     save_manual, load_manual,
     save_work_conditions, load_work_conditions,
+    save_warning_signs, load_warning_signs,
+    save_warning_checkin, load_warning_checkins, delete_warning_checkin,
 )
+import json
+import pandas as pd
 
 
 st.set_page_config(
@@ -61,6 +65,7 @@ with st.sidebar:
         [
             "📋 自分の取扱説明書",
             "🧭 働き方の譲れない条件",
+            "🌧️ 再発のサインリスト",
         ],
         label_visibility="collapsed",
         key="view_radio",
@@ -70,7 +75,6 @@ with st.sidebar:
         "**🗺️ 自分マップ**\n\n"
         "自己理解を整理するツール群。\n\n"
         "**今後追加予定**：\n"
-        "- 🌧️ 再発のサインリスト\n"
         "- 💪 強みインベントリ\n"
         "- 🎯 価値観カードソート"
     )
@@ -465,3 +469,310 @@ elif view == "🧭 働き方の譲れない条件":
                 mime="text/markdown",
                 use_container_width=True,
             )
+
+
+# ============================================================
+# View 3: 再発のサインリスト
+# ============================================================
+elif view == "🌧️ 再発のサインリスト":
+    st.divider()
+    st.markdown("## 🌧️ 再発のサインリスト")
+    st.caption(
+        "**自分のしんどさの早期警告システム**を自分の言葉で作る場所です。"
+        "「早期サイン」で気づければ、対処の幅が広がります。"
+        "**判定や採点はなし**。自分の観察を残すだけ。"
+    )
+
+    _ws_tab = st.radio(
+        "切り替え",
+        ["📝 サインを書く", "✅ 今チェックする", "📚 チェック履歴"],
+        label_visibility="collapsed",
+        horizontal=True,
+        key="warning_signs_tab",
+    )
+
+    _ws_existing = load_warning_signs(user_id=CURRENT_USER_ID)
+
+    # ----- タブ 1: サインを書く -----
+    if _ws_tab == "📝 サインを書く":
+        _updated_at_ws = _ws_existing.get("_updated_at")
+        if _updated_at_ws:
+            try:
+                _disp = _updated_at_ws.replace("T", " ")[:16]
+                st.caption(f"📅 最終更新：{_disp}")
+            except Exception:
+                pass
+
+        st.caption(
+            "**🌱 早期サイン**：「あ、少し疲れてるかも」レベル。早めに気づけると対処しやすい。\n\n"
+            "**⚠️ 警戒サイン**：「これが出たら要注意」レベル。セルフケア・誰かに相談を検討。\n\n"
+            "**🌪️ きっかけ・トリガー**：自分が崩れやすい外的状況（仕事の波・季節・人間関係など）"
+        )
+
+        WARNING_SIGN_SECTIONS = [
+            {
+                "key": "early",
+                "title": "🌱 早期サイン（早めに気づきたい）",
+                "placeholder": (
+                    "例：\n"
+                    "・朝、いつもより布団から出るのに時間がかかる\n"
+                    "・好きな YouTube を見ても乗れない\n"
+                    "・お風呂が面倒になる\n"
+                    "・LINE の返信が遅くなる\n"
+                    "・カフェに行きたくなくなる"
+                ),
+                "help": "「これくらい誰でもある」と思うレベルから書くのがコツ。早期サイン＝軽い段階",
+            },
+            {
+                "key": "warning",
+                "title": "⚠️ 警戒サイン（要セルフケア・相談検討）",
+                "placeholder": (
+                    "例：\n"
+                    "・3 日以上、好きな食べ物が美味しく感じない\n"
+                    "・人と話す気力がなくなる\n"
+                    "・「自分なんて」と思う頻度が増える\n"
+                    "・出勤前に動悸がする\n"
+                    "・休日も体が休まらない"
+                ),
+                "help": "「これが出たら一度立ち止まる」自分なりのレッドライン",
+            },
+            {
+                "key": "triggers",
+                "title": "🌪️ きっかけ・トリガー（崩れやすい状況）",
+                "placeholder": (
+                    "例：\n"
+                    "・繁忙期（10-12 月、3 月）\n"
+                    "・上司との 1on1 が連続する週\n"
+                    "・新しいプロジェクト開始から 2 週間目\n"
+                    "・家族の体調不良が続いた時\n"
+                    "・季節の変わり目（特に春）"
+                ),
+                "help": "外側の要因の方が観察しやすいことがある。「いつ崩れたか」を振り返ると見えてくる",
+            },
+            {
+                "key": "response",
+                "title": "🌿 サインが出た時の対処（自分の処方箋）",
+                "placeholder": (
+                    "例：\n"
+                    "【早期サインが出たら】\n"
+                    "・夜の予定を 1 つキャンセル\n"
+                    "・湯船に浸かる\n"
+                    "・誰かに「最近ちょっとしんどい」と一言送る\n\n"
+                    "【警戒サインが出たら】\n"
+                    "・週末は予定を空けて完全休養\n"
+                    "・主治医に予約を入れる\n"
+                    "・職場に「ちょっと負荷下げて」と相談する"
+                ),
+                "help": "対処を**先に決めておく**と、サインが出た時に迷わない",
+            },
+        ]
+
+        with st.form("warning_signs_form"):
+            _ws_values: dict[str, str] = {}
+            for _sec in WARNING_SIGN_SECTIONS:
+                _initial = _ws_existing.get(_sec["key"], "") if isinstance(
+                    _ws_existing.get(_sec["key"]), str
+                ) else ""
+                _ws_values[_sec["key"]] = st.text_area(
+                    _sec["title"],
+                    value=_initial,
+                    placeholder=_sec["placeholder"],
+                    help=_sec["help"],
+                    height=180,
+                )
+            _save_ws = st.form_submit_button(
+                "💾 保存する", use_container_width=True,
+            )
+            if _save_ws:
+                try:
+                    save_warning_signs(_ws_values, user_id=CURRENT_USER_ID)
+                    st.success("保存しました")
+                except Exception as _e:
+                    st.warning(f"保存に失敗：{_e}")
+
+        # Markdown エクスポート
+        st.divider()
+        with st.expander(
+            "📤 サインリストをテキストで取り出す（共有用）", expanded=False,
+        ):
+            _md_lines = ["# 再発のサインリスト", ""]
+            for _sec in WARNING_SIGN_SECTIONS:
+                _v = _ws_existing.get(_sec["key"], "")
+                if isinstance(_v, str) and _v.strip():
+                    _md_lines.append(f"## {_sec['title']}")
+                    _md_lines.append("")
+                    _md_lines.append(_v.strip())
+                    _md_lines.append("")
+            if len(_md_lines) <= 2:
+                st.caption("（まだ保存された内容がありません）")
+            else:
+                _md_text = "\n".join(_md_lines)
+                st.text_area(
+                    "Markdown テキスト",
+                    value=_md_text,
+                    height=300,
+                    label_visibility="collapsed",
+                )
+                st.download_button(
+                    "💾 .md ファイルとしてダウンロード",
+                    data=_md_text.encode("utf-8"),
+                    file_name="my_warning_signs.md",
+                    mime="text/markdown",
+                    use_container_width=True,
+                )
+
+    # ----- タブ 2: 今チェックする -----
+    elif _ws_tab == "✅ 今チェックする":
+        st.caption(
+            "**自分が書いた早期・警戒サイン**から、今当てはまるものをチェックします。"
+            "結果は時系列で保存されるので、後で自分の波を振り返れます。"
+            "**判定はなし**、自己観察として。"
+        )
+
+        # 書いたサインを行ごとに分解してチェックボックス化
+        _early_raw = _ws_existing.get("early", "")
+        _warning_raw = _ws_existing.get("warning", "")
+
+        def _split_lines(s: str) -> list[str]:
+            if not isinstance(s, str):
+                return []
+            lines = [
+                _ln.strip().lstrip("・-•").strip()
+                for _ln in s.split("\n")
+            ]
+            return [_ln for _ln in lines if _ln]
+
+        _early_list = _split_lines(_early_raw)
+        _warning_list = _split_lines(_warning_raw)
+
+        if not _early_list and not _warning_list:
+            st.info(
+                "まだサインが書かれていません。"
+                "「📝 サインを書く」タブで早期・警戒サインを書いてから戻ってきてください。"
+            )
+        else:
+            with st.form("warning_checkin_form", clear_on_submit=True):
+                _checked: list[str] = []
+
+                if _early_list:
+                    st.markdown("**🌱 早期サイン**")
+                    for _sign in _early_list:
+                        if st.checkbox(_sign, key=f"chk_e_{_sign}"):
+                            _checked.append(f"🌱 {_sign}")
+                    st.write("")
+
+                if _warning_list:
+                    st.markdown("**⚠️ 警戒サイン**")
+                    for _sign in _warning_list:
+                        if st.checkbox(_sign, key=f"chk_w_{_sign}"):
+                            _checked.append(f"⚠️ {_sign}")
+                    st.write("")
+
+                _checkin_note = st.text_area(
+                    "今のメモ（任意）",
+                    placeholder="今の状況・気付いたこと（書けなくても OK）",
+                    height=80,
+                )
+
+                _save_checkin = st.form_submit_button(
+                    "💾 今の状態を記録する", use_container_width=True,
+                )
+                if _save_checkin:
+                    try:
+                        save_warning_checkin(
+                            checked_signs=_checked,
+                            note=_checkin_note,
+                            user_id=CURRENT_USER_ID,
+                        )
+                        _n_early = sum(1 for c in _checked if c.startswith("🌱"))
+                        _n_warn = sum(1 for c in _checked if c.startswith("⚠️"))
+                        st.success(
+                            f"記録しました（早期 {_n_early} / 警戒 {_n_warn}）"
+                        )
+                    except Exception as _e:
+                        st.warning(f"保存に失敗：{_e}")
+
+            # 対処の参照
+            _response = _ws_existing.get("response", "")
+            if isinstance(_response, str) and _response.strip():
+                st.divider()
+                with st.expander(
+                    "🌿 自分が書いた「対処（処方箋）」を見る",
+                    expanded=False,
+                ):
+                    st.markdown(_response)
+
+    # ----- タブ 3: チェック履歴 -----
+    else:
+        st.caption(
+            "**過去のセルフチェック履歴**。"
+            "波の大きさ・頻度を後から振り返る素材です。**判定はなし**、観察として。"
+        )
+
+        try:
+            _df_ci = load_warning_checkins(user_id=CURRENT_USER_ID, limit=30)
+            if _df_ci.empty:
+                st.caption(
+                    "まだチェック履歴はありません。"
+                    "「✅ 今チェックする」タブで記録できます。"
+                )
+            else:
+                # サマリ：直近 7 日のチェック件数
+                try:
+                    _df_ci_dt = _df_ci.copy()
+                    _df_ci_dt["created_at"] = pd.to_datetime(
+                        _df_ci_dt["created_at"], errors="coerce"
+                    )
+                    _recent = _df_ci_dt[
+                        _df_ci_dt["created_at"]
+                        >= (pd.Timestamp.now() - pd.Timedelta(days=7))
+                    ]
+                    st.caption(
+                        f"直近 7 日のチェック回数：**{len(_recent)} 回**"
+                        f" ／ 全期間：**{len(_df_ci_dt)} 回**"
+                    )
+                except Exception:
+                    pass
+
+                for _, _row in _df_ci.iterrows():
+                    try:
+                        _dt = pd.to_datetime(_row["created_at"])
+                        _dt_str = _dt.strftime("%m/%d %H:%M")
+                    except Exception:
+                        _dt_str = str(_row["created_at"])
+                    try:
+                        _signs_list = json.loads(_row["checked_signs"] or "[]")
+                    except Exception:
+                        _signs_list = []
+                    _n_early = sum(1 for s in _signs_list if s.startswith("🌱"))
+                    _n_warn = sum(1 for s in _signs_list if s.startswith("⚠️"))
+                    _summary = []
+                    if _n_early:
+                        _summary.append(f"🌱{_n_early}")
+                    if _n_warn:
+                        _summary.append(f"⚠️{_n_warn}")
+                    _summary_str = "  ".join(_summary) or "（チェックなし）"
+                    with st.expander(
+                        f"📝 {_dt_str}　{_summary_str}", expanded=False,
+                    ):
+                        if _signs_list:
+                            for _s in _signs_list:
+                                st.markdown(f"- {_s}")
+                        else:
+                            st.caption("（当てはまるサインなし）")
+                        if _row.get("note"):
+                            st.divider()
+                            st.markdown(f"**メモ**：{_row['note']}")
+                        if st.button(
+                            "🗑️ 削除", key=f"del_ci_{_row['id']}",
+                        ):
+                            try:
+                                delete_warning_checkin(
+                                    int(_row["id"]),
+                                    user_id=CURRENT_USER_ID,
+                                )
+                                st.rerun()
+                            except Exception as _e:
+                                st.warning(f"削除失敗：{_e}")
+        except Exception as _e:
+            st.caption(f"履歴の読み込みでエラー：{_e}")
