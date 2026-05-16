@@ -35,6 +35,11 @@ try:
 except Exception:
     chat_engine = None
     _CHAT_AVAILABLE = False
+
+# 危機検出（3 モード判定）
+from crisis_detection import detect_mode
+from crisis_ui import render_warning_ui, render_critical_ui
+
 import json
 import pandas as pd
 
@@ -529,6 +534,23 @@ elif view == "📋 自分の取扱説明書":
 
             _user_input = st.chat_input("ここに書きながら整理する…")
             if _user_input:
+                # 危機検出：入力時点でモード判定
+                try:
+                    _ai_client = chat_engine._get_client()
+                except Exception:
+                    _ai_client = None
+                _md = detect_mode(
+                    _user_input, client=_ai_client, use_llm=True,
+                )["mode"]
+                if _md == "critical":
+                    render_critical_ui()
+                    st.stop()
+                elif _md == "warning":
+                    render_warning_ui(
+                        on_resume_key="manual_chat_warning_resume",
+                    )
+                    st.stop()
+
                 st.session_state[_mkey].append(
                     {"role": "user", "content": _user_input}
                 )
@@ -1452,6 +1474,23 @@ elif view == "💪 強みインベントリ":
                 key="strength_chat_input",
             )
             if _user_input_s:
+                # 危機検出
+                try:
+                    _ai_client = chat_engine._get_client()
+                except Exception:
+                    _ai_client = None
+                _md = detect_mode(
+                    _user_input_s, client=_ai_client, use_llm=True,
+                )["mode"]
+                if _md == "critical":
+                    render_critical_ui()
+                    st.stop()
+                elif _md == "warning":
+                    render_warning_ui(
+                        on_resume_key="strength_chat_warning_resume",
+                    )
+                    st.stop()
+
                 st.session_state[_skey].append(
                     {"role": "user", "content": _user_input_s}
                 )
