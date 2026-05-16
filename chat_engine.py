@@ -267,6 +267,93 @@ def extract_strength_from_chat(messages: list[dict]) -> dict:
 
 
 # ============================================================
+# 再発のサインリスト：AI 提案（本人が書いた内容を踏まえて補完）
+# ============================================================
+WARNING_AI_SYSTEM_PROMPT = """\
+あなたは自分マップというアプリ内で、ユーザーの「再発のサインリスト」を
+補完する役割を担う AI です。
+
+# 重要な原則
+- **本人が既に書いた内容を最優先**にする。AI が一般論で塗りつぶさない。
+- 本人の書いた内容を読んで、**抜けていそうな観点・視点**を提案する。
+- AI 提案は **「本人の感覚と合うかチェックする材料」**。採用するかは本人が決める。
+- **断定しない**。「あなたには ◯◯ のサインがあります」のような決めつけ NG。
+- 一般論を並べるのではなく、**本人の書いた言葉から推測できる範囲**で提案する。
+
+# あなたのタスク
+入力されるのはユーザーが書いた以下の内容です：
+- early: 早期サインに書いた内容
+- warning: 警戒サインに書いた内容
+- triggers: きっかけ・トリガーに書いた内容
+- response: 対処に書いた内容
+- (補助情報) extra_context: 他のアプリで書いた内容（ストレス源・言葉にできないメモなど）
+
+以下の観点で **「もしかしたら見落としている早期・警戒サイン候補」** を提案してください：
+- 本人の書いた内容と **整合する** 範囲で
+- 既に書いてあるものとの **重複を避ける**
+- カテゴリ別（身体 / 行動 / 思考 / 感情 / 環境）に **網羅性のチェック**
+- 各候補は **短く・具体的**に（「朝、布団から出るのに時間がかかる」レベル）
+
+# 出力形式
+
+```json
+{
+  "suggested_early": ["候補1", "候補2", ...],
+  "suggested_warning": ["候補1", "候補2", ...],
+  "notes": "全体的な気付き（任意・短く）"
+}
+```
+
+# トーン
+- 「こういう視点もあるかもしれません」と提案調。
+- 何も思いつかない場合は空リストで返す。無理に増やさない。
+- 既に十分書けている場合は notes に「既に充実しています」と返す。
+"""
+
+
+def suggest_warning_signs(
+    existing: dict,
+    extra_context: dict | None = None,
+) -> dict:
+    """既存の再発サインリスト内容を踏まえて、AI が補完候補を返す。
+
+    existing: {"early": "...", "warning": "...", "triggers": "...", "response": "..."}
+    extra_context: 他データ（ストレス源・言葉にできないメモ等）の dict（任意）
+    戻り値: {"suggested_early": [...], "suggested_warning": [...], "notes": "..."}
+    """
+    client = _get_client()
+    parts = []
+    parts.append("【本人が既に書いた内容】")
+    for key, label in [
+        ("early", "早期サイン"),
+        ("warning", "警戒サイン"),
+        ("triggers", "きっかけ・トリガー"),
+        ("response", "対処（処方箋）"),
+    ]:
+        v = existing.get(key, "")
+        if isinstance(v, str) and v.strip():
+            parts.append(f"\n◆ {label}\n{v.strip()}")
+        else:
+            parts.append(f"\n◆ {label}\n（未記入）")
+
+    if extra_context:
+        parts.append("\n\n【補助情報（他のアプリでの記録）】")
+        for k, v in extra_context.items():
+            if v:
+                parts.append(f"\n◇ {k}\n{v}")
+
+    user_msg = "\n".join(parts)
+    response = client.messages.create(
+        model=EXTRACT_MODEL,
+        max_tokens=1500,
+        system=WARNING_AI_SYSTEM_PROMPT,
+        messages=[{"role": "user", "content": user_msg}],
+    )
+    text = response.content[0].text
+    return _parse_json_block(text)
+
+
+# ============================================================
 # 共通：JSON 抽出
 # ============================================================
 def _parse_json_block(text: str) -> dict:

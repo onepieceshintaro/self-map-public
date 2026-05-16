@@ -70,15 +70,24 @@ with st.sidebar:
         use_container_width=True,
     )
     st.divider()
+    st.caption("📝 記入系（自分の言葉で）")
     view = st.radio(
         "表示",
         [
             "🌱 言葉にする",
-            "📋 自分の取扱説明書",
-            "🧭 働き方の譲れない条件",
             "🌧️ 再発のサインリスト",
+            "📋 自分の取扱説明書",
             "💪 強みインベントリ",
+            "🧭 働き方の譲れない条件",
             "🎯 価値観カードソート",
+        ],
+        captions=[
+            "Phase 1：気づき",
+            "Phase 3：回復",
+            "Phase 4：再選択",
+            "Phase 4：再選択",
+            "Phase 4：再選択（選ぶ系）",
+            "Phase 4：再選択（選ぶ系）",
         ],
         label_visibility="collapsed",
         key="view_radio",
@@ -86,7 +95,7 @@ with st.sidebar:
     st.divider()
     st.caption(
         "**🗺️ 自分マップ**\n\n"
-        "自己理解を整理するツール群。\n\n"
+        "上 4 つは **記入系**、下 2 つは **選ぶ系**。\n\n"
         "5 フェーズの「再選択」期に向けて、"
         "自分の輪郭を言語化していく場所。"
     )
@@ -465,7 +474,14 @@ elif view == "📋 自分の取扱説明書":
         },
     ]
 
-    with st.form("manual_form"):
+    # タブ構造：「自分で書く」を第 1（デフォルト）、「AI と整理する」を第 2 に。
+    # 「自分の言葉が主、AI は補助」を順序で示す（既存原則 feedback_ai_assist_philosophy）。
+    _manual_form_tab, _manual_ai_tab = st.tabs(
+        ["📝 自分で書く", "💬 AI と整理する"]
+    )
+
+    with _manual_form_tab:
+      with st.form("manual_form"):
         _values: dict[str, str] = {}
         for _sec in MANUAL_SECTIONS:
             _key = _sec["key"]
@@ -490,7 +506,143 @@ elif view == "📋 自分の取扱説明書":
             except Exception as _e:
                 st.warning(f"保存に失敗：{_e}")
 
-    # 共有用エクスポート（Markdown）
+    with _manual_ai_tab:
+        if not _CHAT_AVAILABLE:
+            st.caption(
+                "AI 補助は API キーが設定されていない環境では使えません。"
+                "「📝 自分で書く」タブから自分で書く形でご利用ください。"
+            )
+        else:
+            st.caption(
+                "**AI と対話**しながら、取扱説明書の各セクションに当てはまる内容を引き出します。"
+                "AI は質問するだけ。出てきた内容は "
+                "**必ず本人が確認してからフォームに反映**してください。"
+            )
+
+            _mkey = "chat_manual_messages"
+            if _mkey not in st.session_state:
+                st.session_state[_mkey] = []
+
+            for _msg in st.session_state[_mkey]:
+                with st.chat_message(_msg["role"]):
+                    st.markdown(_msg["content"])
+
+            _user_input = st.chat_input("ここに書きながら整理する…")
+            if _user_input:
+                st.session_state[_mkey].append(
+                    {"role": "user", "content": _user_input}
+                )
+                try:
+                    with st.spinner("…考えています…"):
+                        _ai_reply = chat_engine.chat_manual(
+                            st.session_state[_mkey]
+                        )
+                    st.session_state[_mkey].append(
+                        {"role": "assistant", "content": _ai_reply}
+                    )
+                    st.rerun()
+                except Exception as _e:
+                    st.warning(f"AI 応答失敗：{_e}")
+                    st.session_state[_mkey].pop()
+
+            if len(st.session_state[_mkey]) >= 2:
+                _col_ext, _col_clear = st.columns(2)
+                with _col_ext:
+                    if st.button(
+                        "📥 ここまでの会話から取扱説明書に整理する",
+                        use_container_width=True,
+                        key="manual_chat_extract",
+                    ):
+                        try:
+                            with st.spinner("整理中…"):
+                                _extracted_manual = (
+                                    chat_engine.extract_manual_from_chat(
+                                        st.session_state[_mkey]
+                                    )
+                                )
+                            st.session_state["chat_manual_extracted"] = (
+                                _extracted_manual
+                            )
+                            st.success("整理しました（下に表示）")
+                        except Exception as _e:
+                            st.warning(f"整理失敗：{_e}")
+                with _col_clear:
+                    if st.button(
+                        "🗑️ チャットをリセット",
+                        use_container_width=True,
+                        key="manual_chat_reset",
+                    ):
+                        st.session_state[_mkey] = []
+                        st.session_state.pop("chat_manual_extracted", None)
+                        st.rerun()
+
+            _extracted_manual = st.session_state.get("chat_manual_extracted")
+            if _extracted_manual:
+                st.divider()
+                st.markdown("#### 📋 抽出結果プレビュー")
+                st.caption(
+                    "下記が AI が抽出した内容です。"
+                    "**「自分の言葉そのまま」** を引き出すようにプロンプトしていますが、"
+                    "**必ず本人が確認してからフォームに反映**してください。"
+                    "反映時は **「📝 自分で書く」タブのフォームの既存内容に追記**されます（上書きなし）。"
+                )
+                _has_any = False
+                for _sec in MANUAL_SECTIONS:
+                    _v = _extracted_manual.get(_sec["key"], "")
+                    if isinstance(_v, str) and _v.strip():
+                        _has_any = True
+                        with st.container(border=True):
+                            st.markdown(f"**{_sec['title']}**")
+                            st.markdown(_v)
+                if not _has_any:
+                    st.caption("（抽出できる内容が見つかりませんでした）")
+                else:
+                    if st.button(
+                        "📝 フォームに反映（既存に追記）",
+                        use_container_width=True,
+                        key="manual_chat_apply",
+                    ):
+                        try:
+                            _merged_manual: dict[str, str] = {}
+                            for _sec in MANUAL_SECTIONS:
+                                _k = _sec["key"]
+                                _ex_v = _existing.get(_k, "") or ""
+                                _ext_v = _extracted_manual.get(_k, "") or ""
+                                if (
+                                    isinstance(_ext_v, str)
+                                    and _ext_v.strip()
+                                ):
+                                    if (
+                                        isinstance(_ex_v, str)
+                                        and _ex_v.strip()
+                                    ):
+                                        _merged_manual[_k] = (
+                                            _ex_v.rstrip()
+                                            + "\n"
+                                            + _ext_v.strip()
+                                        )
+                                    else:
+                                        _merged_manual[_k] = _ext_v.strip()
+                                else:
+                                    _merged_manual[_k] = (
+                                        _ex_v
+                                        if isinstance(_ex_v, str) else ""
+                                    )
+                            save_manual(
+                                _merged_manual, user_id=CURRENT_USER_ID,
+                            )
+                            st.session_state.pop(
+                                "chat_manual_extracted", None,
+                            )
+                            st.session_state[_mkey] = []
+                            st.success(
+                                "フォームに反映しました。再読み込みします…"
+                            )
+                            st.rerun()
+                        except Exception as _e:
+                            st.warning(f"反映失敗：{_e}")
+
+    # 共有用エクスポート（Markdown）- タブ外（両モード共通）
     st.divider()
     with st.expander(
         "📤 取扱説明書をテキストで取り出す（コピー・共有用）", expanded=False
@@ -524,136 +676,6 @@ elif view == "📋 自分の取扱説明書":
                 mime="text/markdown",
                 use_container_width=True,
             )
-
-    # ===========================================================
-    # 💬 AI と整理する（オプション・補助）
-    # ===========================================================
-    # 既存原則と整合：
-    # - 完全オプトイン（このブロックは独立した補助）
-    # - AI 出力は「たたき台」、保存は必ず本人確認後
-    # - 「フォームに反映」も既存内容に追記（上書きしない）
-    # ===========================================================
-    st.divider()
-    st.markdown("### 💬 AI と整理する（オプション）")
-    if not _CHAT_AVAILABLE:
-        st.caption(
-            "AI 補助は API キーが設定されていない環境では使えません。"
-            "上のフォームから自分で書く形でご利用ください。"
-        )
-    else:
-        st.caption(
-            "**AI と対話**しながら、取扱説明書の各セクションに当てはまる内容を引き出します。"
-            "AI は質問するだけ。出てきた内容は **必ず本人が確認してからフォームに反映**してください。"
-        )
-
-        _mkey = "chat_manual_messages"
-        if _mkey not in st.session_state:
-            st.session_state[_mkey] = []
-
-        # チャット履歴の表示
-        for _msg in st.session_state[_mkey]:
-            with st.chat_message(_msg["role"]):
-                st.markdown(_msg["content"])
-
-        _user_input = st.chat_input("ここに書きながら整理する…")
-        if _user_input:
-            st.session_state[_mkey].append(
-                {"role": "user", "content": _user_input}
-            )
-            try:
-                with st.spinner("…考えています…"):
-                    _ai_reply = chat_engine.chat_manual(
-                        st.session_state[_mkey]
-                    )
-                st.session_state[_mkey].append(
-                    {"role": "assistant", "content": _ai_reply}
-                )
-                st.rerun()
-            except Exception as _e:
-                st.warning(f"AI 応答失敗：{_e}")
-                st.session_state[_mkey].pop()
-
-        if len(st.session_state[_mkey]) >= 2:
-            _col_ext, _col_clear = st.columns(2)
-            with _col_ext:
-                if st.button(
-                    "📥 ここまでの会話から取扱説明書に整理する",
-                    use_container_width=True,
-                    key="manual_chat_extract",
-                ):
-                    try:
-                        with st.spinner("整理中…"):
-                            _extracted_manual = (
-                                chat_engine.extract_manual_from_chat(
-                                    st.session_state[_mkey]
-                                )
-                            )
-                        st.session_state["chat_manual_extracted"] = (
-                            _extracted_manual
-                        )
-                        st.success("整理しました（下に表示）")
-                    except Exception as _e:
-                        st.warning(f"整理失敗：{_e}")
-            with _col_clear:
-                if st.button(
-                    "🗑️ チャットをリセット",
-                    use_container_width=True,
-                    key="manual_chat_reset",
-                ):
-                    st.session_state[_mkey] = []
-                    st.session_state.pop("chat_manual_extracted", None)
-                    st.rerun()
-
-        _extracted_manual = st.session_state.get("chat_manual_extracted")
-        if _extracted_manual:
-            st.divider()
-            st.markdown("#### 📋 抽出結果プレビュー")
-            st.caption(
-                "下記が AI が抽出した内容です。"
-                "**「自分の言葉そのまま」** を引き出すようにプロンプトしていますが、"
-                "**必ず本人が確認してからフォームに反映**してください。"
-                "反映時は **上のフォームの既存内容に追記**されます（上書きなし）。"
-            )
-            _has_any = False
-            for _sec in MANUAL_SECTIONS:
-                _v = _extracted_manual.get(_sec["key"], "")
-                if isinstance(_v, str) and _v.strip():
-                    _has_any = True
-                    with st.container(border=True):
-                        st.markdown(f"**{_sec['title']}**")
-                        st.markdown(_v)
-            if not _has_any:
-                st.caption("（抽出できる内容が見つかりませんでした）")
-            else:
-                if st.button(
-                    "📝 フォームに反映（既存に追記）",
-                    use_container_width=True,
-                    key="manual_chat_apply",
-                ):
-                    try:
-                        _merged_manual: dict[str, str] = {}
-                        for _sec in MANUAL_SECTIONS:
-                            _k = _sec["key"]
-                            _ex_v = _existing.get(_k, "") or ""
-                            _ext_v = _extracted_manual.get(_k, "") or ""
-                            if isinstance(_ext_v, str) and _ext_v.strip():
-                                if isinstance(_ex_v, str) and _ex_v.strip():
-                                    _merged_manual[_k] = (
-                                        _ex_v.rstrip() + "\n" + _ext_v.strip()
-                                    )
-                                else:
-                                    _merged_manual[_k] = _ext_v.strip()
-                            else:
-                                _merged_manual[_k] = _ex_v if isinstance(_ex_v, str) else ""
-                        save_manual(_merged_manual, user_id=CURRENT_USER_ID)
-                        st.session_state.pop(
-                            "chat_manual_extracted", None,
-                        )
-                        st.session_state[_mkey] = []
-                        st.success("フォームに反映しました。再読み込みします…")
-                        st.rerun()
-                    except Exception as _e:
-                        st.warning(f"反映失敗：{_e}")
 
 
 # ============================================================
@@ -1001,6 +1023,134 @@ elif view == "🌧️ 再発のサインリスト":
                     mime="text/markdown",
                     use_container_width=True,
                 )
+
+        # === AI 補完提案（書いた後にだけ動く）===
+        # 設計意図：
+        # - 「いきなり AI 一般例を提示」は anchoring リスク
+        # - 本人がまず書いた内容を踏まえて、抜けていそうな観点を補完する
+        # - 採用するかは本人の判断（提案は表示のみ、書き込みはしない）
+        st.divider()
+        st.markdown("### 🤖 AI に抜けを補完してもらう（オプション）")
+        if not _CHAT_AVAILABLE:
+            st.caption(
+                "AI 補助は API キーが設定されていない環境では使えません。"
+            )
+        else:
+            _has_existing_content = any(
+                isinstance(_ws_existing.get(_k), str)
+                and _ws_existing.get(_k, "").strip()
+                for _k in ["early", "warning", "triggers", "response"]
+            )
+            if not _has_existing_content:
+                st.caption(
+                    "👆 まず上のフォームで **早期サイン・警戒サイン** を"
+                    "少しでも書いて保存してから、AI に補完提案をもらえます。"
+                    "「自分の言葉が主、AI は補助」の順序を守るためです。"
+                )
+            else:
+                st.caption(
+                    "**書いた内容を踏まえて**、抜けていそうな観点を AI が提案します。"
+                    "**自動で追加はしません**。本人が「これは自分の感覚に合う」と思ったものだけ、"
+                    "上のフォームに自分で書き写してください。"
+                )
+
+                if st.button(
+                    "🤖 抜けを補完する提案をもらう",
+                    use_container_width=True,
+                    key="warning_ai_suggest",
+                ):
+                    try:
+                        with st.spinner("AI が補完候補を考えています…"):
+                            # 補助情報：他データを軽く参照
+                            _extra: dict = {}
+                            try:
+                                _ss_df = load_stress_sources(
+                                    user_id=CURRENT_USER_ID, limit=5,
+                                )
+                                if not _ss_df.empty:
+                                    _ss_recent = [
+                                        ", ".join(
+                                            json.loads(r["sources"] or "[]")
+                                        )
+                                        for _, r in _ss_df.iterrows()
+                                    ]
+                                    _extra["最近のストレス源（言葉にする）"] = (
+                                        " / ".join(
+                                            _x for _x in _ss_recent if _x
+                                        )
+                                    )
+                            except Exception:
+                                pass
+                            try:
+                                _nv_df = load_nonverbal_memos(
+                                    user_id=CURRENT_USER_ID, limit=5,
+                                )
+                                if not _nv_df.empty:
+                                    _nv_recent = [
+                                        " ".join(
+                                            json.loads(r["state_markers"] or "[]")
+                                        )
+                                        + " "
+                                        + (r["content"] or "")
+                                        for _, r in _nv_df.iterrows()
+                                    ]
+                                    _extra["最近の状態マーカー（言葉にできないメモ）"] = (
+                                        " / ".join(
+                                            _x.strip()
+                                            for _x in _nv_recent if _x.strip()
+                                        )
+                                    )
+                            except Exception:
+                                pass
+
+                            _suggest = chat_engine.suggest_warning_signs(
+                                existing=_ws_existing,
+                                extra_context=_extra or None,
+                            )
+                        st.session_state["warning_ai_suggest"] = _suggest
+                    except Exception as _e:
+                        st.warning(f"提案の取得に失敗：{_e}")
+
+                _suggest = st.session_state.get("warning_ai_suggest")
+                if _suggest:
+                    st.divider()
+                    st.markdown("#### 🤖 補完候補（参考）")
+                    st.caption(
+                        "下記は **自分の感覚と合うかチェックする材料**。"
+                        "**ピンと来たものだけ**、上のフォームに自分で書き写してください。"
+                        "ピンと来ないものは無視で OK。"
+                    )
+                    _sug_early = _suggest.get("suggested_early") or []
+                    _sug_warn = _suggest.get("suggested_warning") or []
+                    _sug_notes = _suggest.get("notes") or ""
+
+                    if not _sug_early and not _sug_warn:
+                        st.caption(
+                            "（候補は出ませんでした。"
+                            "既に十分書けているか、AI が推測しきれませんでした）"
+                        )
+
+                    if _sug_early:
+                        with st.container(border=True):
+                            st.markdown("**🌱 早期サイン候補**")
+                            for _s in _sug_early:
+                                st.markdown(f"- {_s}")
+
+                    if _sug_warn:
+                        with st.container(border=True):
+                            st.markdown("**⚠️ 警戒サイン候補**")
+                            for _s in _sug_warn:
+                                st.markdown(f"- {_s}")
+
+                    if _sug_notes:
+                        st.caption(f"💡 {_sug_notes}")
+
+                    if st.button(
+                        "🗑️ 候補を閉じる",
+                        key="warning_ai_clear",
+                    ):
+                        st.session_state.pop("warning_ai_suggest", None)
+                        st.rerun()
 
     # ----- タブ 2: 今チェックする -----
     elif _ws_tab == "✅ 今チェックする":
